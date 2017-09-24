@@ -48,6 +48,11 @@ protected:
    */
   void UpdateRadar(MeasurementPackage measurementPack);
 
+  /**
+   * Updates the state and the state covariance matrix using given parameters.
+   */
+  void Update(const TVector &y, const TMatrix &S, const TMatrix &K);
+
 public:
   ///* initially set to false, set to true in first call of ProcessMeasurement
   bool mIsInitialized;

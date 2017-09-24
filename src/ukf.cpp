@@ -192,14 +192,46 @@ void UKF::Prediction(double deltaTime)
 
 void UKF::UpdateLidar(MeasurementPackage measurementPack)
 {
-  /**
-  TODO:
+  // map sigma points to measurement space
+  TMatrix zSig = MatrixXd(2, 2 * mNAug + 1);
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+    TVector z = mXSigPred.col(n);
+    zSig.col(n) << z(0) , z(1);
+  }
 
-  Complete this function! Use lidar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
+  // calculate mean predicted measurement
+  TVector zPred = zSig.col(0) * mWeights(0);
+  for (int n = 1; n < 2 * mNAug + 1; ++n)
+  {
+    zPred += zSig.col(n) * mWeights(n);
+  }
 
-  You'll also need to calculate the lidar NIS.
-  */
+  TMatrix S(2, 2);
+  TMatrix Tc(mNX, 2);
+  S.setZero();
+  Tc.setZero();
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+    // prediction residual
+    VectorXd zd = zSig.col(n) - zPred;
+
+    // calculate measurement covariance
+    S += mWeights(n) * zd * zd.transpose();
+
+    // calculate cross correlation matrix
+    VectorXd xd = mXSigPred.col(n) - mX;
+    xd(3) = GetTools().NormalizeAngle(xd(3));
+    Tc += mWeights(n) * xd * zd.transpose();
+  }
+
+  // add measurement noise
+  S += mRLaser;
+
+  // update
+  MatrixXd K = Tc * S.inverse();
+  VectorXd y = measurementPack.rawMeasurements - zPred;
+  Update(y, S, K);
 }
 
 void UKF::UpdateRadar(MeasurementPackage measurementPack)
@@ -212,7 +244,7 @@ void UKF::UpdateRadar(MeasurementPackage measurementPack)
     float roh = sqrt(z(0) * z(0) + z(1) * z(1)) + 0.001;
     zSig.col(n) << roh,
                    atan2(z(1),z(0)),
-                   (z(0)*cos(z(3))*z(2) + z(1)*sin(z(3))*z(2) ) / roh;
+                   (z(0) * cos(z(3)) * z(2) + z(1) * sin(z(3)) * z(2) ) / roh;
   }
 
   // calculate mean predicted measurement
@@ -222,44 +254,38 @@ void UKF::UpdateRadar(MeasurementPackage measurementPack)
     zPred += zSig.col(n) * mWeights(n);
   }
 
-  // calculate measurement covariance matrix S
   TMatrix S(3, 3);
-  S.setZero();
-  for (int n = 0; n < 2 * mNAug + 1; ++n)
-  {
-    //residual
-    VectorXd zd = zSig.col(n) - zPred;
-    zd(1) = GetTools().NormalizeAngle(zd(1));
-    S += mWeights(n) * zd * zd.transpose();
-  }
-
-  // add measurement noise covariance matrix
-  S += mRRadar;
-
-  // calculate cross correlation matrix
   TMatrix Tc(mNX, 3);
+  S.setZero();
   Tc.setZero();
   for (int n = 0; n < 2 * mNAug + 1; ++n)
   {
-    //residual
+    // prediction residual
     VectorXd zd = zSig.col(n) - zPred;
     zd(1) = GetTools().NormalizeAngle(zd(1));
 
-    // state difference
+    // calculate measurement covariance
+    S += mWeights(n) * zd * zd.transpose();
+
+    // calculate cross correlation matrix
     VectorXd xd = mXSigPred.col(n) - mX;
     xd(3) = GetTools().NormalizeAngle(xd(3));
-
     Tc += mWeights(n) * xd * zd.transpose();
   }
 
-  //Kalman gain K;
+  // add measurement noise
+  S += mRRadar;
+
+  // update
   MatrixXd K = Tc * S.inverse();
+  VectorXd y = measurementPack.rawMeasurements - zPred;
+  y(1) = GetTools().NormalizeAngle(y(1));
+  Update(y, S, K);
+}
 
-  //residual
-  VectorXd zd = measurementPack.rawMeasurements - zPred;
-  zd(1) = GetTools().NormalizeAngle(zd(1));
-
+void UKF::Update(const TVector &y, const TMatrix &S, const TMatrix &K)
+{
   //update state mean and covariance matrix
-  mX += K * zd;
+  mX += K * y;
   mP += K * S * K.transpose();
 }
