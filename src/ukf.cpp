@@ -13,7 +13,7 @@ using std::vector;
 UKF::UKF()
   : mIsInitialized(false)
   , mUseLaser(true)
-  , mUseRadar(true)
+  , mUseRadar(false)
   , mNX(5)
   , mNAug(7)
   , mX(mNX)
@@ -185,11 +185,7 @@ void UKF::Prediction(double deltaTime)
   }
 
   // update new state from predicted sigma points
-  mX = mWeights(0) * mXSigPred.col(0);
-  for (int n = 1; n < 2 * mNAug + 1; ++n)
-  {
-    mX += mWeights(n) * mXSigPred.col(n);
-  }
+  mX = GetTools().CalculateSigmaMean(mXSigPred, mWeights);
   mX(3) = GetTools().NormalizeAngle(mX(3));
 
   // update state covariance matrix from predicted sigma points
@@ -209,15 +205,12 @@ void UKF::UpdateLidar(MeasurementPackage measurementPack)
   for (int n = 0; n < 2 * mNAug + 1; ++n)
   {
     TVector z = mXSigPred.col(n);
-    zSig.col(n) << z(0) , z(1);
+    zSig.col(n) << z(0),
+                   z(1);
   }
 
   // calculate mean predicted measurement
-  TVector zPred = mWeights(0) * zSig.col(0);
-  for (int n = 1; n < 2 * mNAug + 1; ++n)
-  {
-    zPred +=  mWeights(n) * zSig.col(n);
-  }
+  TVector zPred = GetTools().CalculateSigmaMean(zSig, mWeights);
 
   TMatrix S(2, 2);
   TMatrix Tc(mNX, 2);
@@ -256,15 +249,11 @@ void UKF::UpdateRadar(MeasurementPackage measurementPack)
     float roh = sqrt(z(0) * z(0) + z(1) * z(1)) + 0.001;
     zSig.col(n) << roh,
                    atan2(z(1),z(0)),
-                   (z(0) * cos(z(3)) * z(2) + z(1) * sin(z(3)) * z(2) ) / roh;
+                   (z(0) * cos(z(3)) * z(2) + z(1) * sin(z(3)) * z(2)) / roh;
   }
 
   // calculate mean predicted measurement
-  TVector zPred = mWeights(0) * zSig.col(0);
-  for (int n = 1; n < 2 * mNAug + 1; ++n)
-  {
-    zPred += mWeights(n) * zSig.col(n);
-  }
+  TVector zPred = GetTools().CalculateSigmaMean(zSig, mWeights);
   zPred(1) = GetTools().NormalizeAngle(zPred(1));
 
   TMatrix S(3, 3);
@@ -300,5 +289,6 @@ void UKF::Update(const TVector &y, const TMatrix &S, const TMatrix &K)
 {
   //update state mean and covariance matrix
   mX += K * y;
-  mP += K * S * K.transpose();
+  mX(3) = GetTools().NormalizeAngle(mX(3));
+  mP -= K * S * K.transpose();
 }

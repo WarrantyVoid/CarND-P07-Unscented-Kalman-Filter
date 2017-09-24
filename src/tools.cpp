@@ -41,6 +41,16 @@ float Tools::CalculateAngleDelta(float a1, float a2) const
   return aDelta;
 }
 
+ TVector Tools::CalculateSigmaMean(const TMatrix &points, const TVector &weights) const
+ {
+   TVector mean = weights(0) * points.col(0);
+   for (int n = 1; n < points.cols(); ++n)
+   {
+     mean +=  weights(n) * points.col(n);
+   }
+   return mean;
+ }
+
 float Tools::NormalizeAngle(float a) const
 {
   while (a > M_PI)

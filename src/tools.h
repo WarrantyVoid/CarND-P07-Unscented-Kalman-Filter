@@ -17,6 +17,11 @@ public:
   TVector CalculateRMSE(const TVectorList &estimations, const TVectorList &groundTruths) const;
 
   /**
+  * A helper method to calculate mean vector of sigma point matrix.
+  **/
+  TVector CalculateSigmaMean(const TMatrix &points, const TVector &weights) const;
+
+  /**
   * A helper method to calculate delta between two angles.
   **/
   float CalculateAngleDelta(float a1, float a2) const;
