@@ -10,83 +10,188 @@ using std::vector;
 /**
  * Initializes Unscented Kalman filter
  */
-UKF::UKF() {
-  // if this is false, laser measurements will be ignored (except during init)
-  use_laser_ = true;
+UKF::UKF()
+  : mIsInitialized(false)
+  , mUseLaser(true)
+  , mUseRadar(true)
+  , mNX(5)
+  , mNAug(7)
+  , mX(mNX)
+  , mP(mNX, mNX)
+  , mXSigPred(mNX, 2 * mNAug + 1)
+  , mPreviousTimestamp(0ull)
+  , mStdA(0.2)
+  , mStdYawdd(0.2)
+  , mStdLaspx(0.15)
+  , mStdLaspy(0.15)
+  , mStdRadr(0.3)
+  , mStdRadphi(0.0175)
+  , mStdRadrd(0.1)
+  , mRLaser(2, 2)
+  , mRRadar(3, 3)
+  , mWeights(2 * mNAug + 1)
+  , mLambda(3 - mNAug)
+{
+  // init laser noise
+  mRLaser << mStdLaspx * mStdLaspx, 0,
+             0,                     mStdLaspy * mStdLaspy;
 
-  // if this is false, radar measurements will be ignored (except during init)
-  use_radar_ = true;
+  // init radar noise
+  mRRadar << mStdRadr * mStdRadr, 0                      , 0,
+             0                  , mStdRadphi * mStdRadphi, 0,
+             0                  , 0                      , mStdRadrd * mStdRadr;
 
-  // initial state vector
-  x_ = VectorXd(5);
-
-  // initial covariance matrix
-  P_ = MatrixXd(5, 5);
-
-  // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 30;
-
-  // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 30;
-
-  // Laser measurement noise standard deviation position1 in m
-  std_laspx_ = 0.15;
-
-  // Laser measurement noise standard deviation position2 in m
-  std_laspy_ = 0.15;
-
-  // Radar measurement noise standard deviation radius in m
-  std_radr_ = 0.3;
-
-  // Radar measurement noise standard deviation angle in rad
-  std_radphi_ = 0.03;
-
-  // Radar measurement noise standard deviation radius change in m/s
-  std_radrd_ = 0.3;
-
-  /**
-  TODO:
-
-  Complete the initialization. See ukf.h for other member properties.
-
-  Hint: one or more values initialized above might be wildly off...
-  */
+  // init sigma weights
+  mWeights(0) = mLambda / (mLambda + mNAug);
+  for (int n = 1; n < 2 * mNAug + 1; ++n)
+  {
+    mWeights(n) = 0.5 / (mLambda + mNAug);
+  }
 }
 
-UKF::~UKF() {}
+UKF::~UKF()
+{
 
-/**
- * @param {MeasurementPackage} meas_package The latest measurement data of
- * either radar or laser.
- */
-void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
-  /**
-  TODO:
-
-  Complete this function! Make sure you switch between lidar and radar
-  measurements.
-  */
 }
 
-/**
- * Predicts sigma points, the state, and the state covariance matrix.
- * @param {double} delta_t the change in time (in seconds) between the last
- * measurement and this one.
- */
-void UKF::Prediction(double delta_t) {
-  /**
-  TODO:
+void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
+{
+  if (!mIsInitialized)
+  {
+    mP << 1, 0, 0   , 0,    0,
+          0, 1, 0   , 0,    0,
+          0, 0, 1000, 0,    0,
+          0, 0, 0   , 1000, 0,
+          0, 0, 0   , 0,    1000;
+    switch (measurementPack.sensorType)
+    {
+      case MeasurementPackage::RADAR:
+      {
+        mX << measurementPack.rawMeasurements(0) * cos(measurementPack.rawMeasurements(1)),
+              measurementPack.rawMeasurements(0) * sin(measurementPack.rawMeasurements(1)),
+              0,
+              0,
+              0;
+      }
+      break;
+    case MeasurementPackage::LASER:
+      {
+        mX << measurementPack.rawMeasurements(0),
+              measurementPack.rawMeasurements(1),
+              0,
+              0,
+              0;
+      }
+      break;
+    }
+    mIsInitialized = true;
+  }
+  else
+  {
+    // predict state and new uncertainty given time delta and acceleration noise
+    float dt = (measurementPack.timestamp - mPreviousTimestamp) / 1000000.0f;
+    Prediction(dt);
 
-  Complete this function! Estimate the object's location. Modify the state
-  vector, x_. Predict sigma points, the state, and the state covariance matrix.
-  */
+    switch (measurementPack.sensorType)
+    {
+    case MeasurementPackage::RADAR:
+      UpdateRadar(measurementPack);
+      break;
+    case MeasurementPackage::LASER:
+      UpdateLidar(measurementPack);
+      break;
+    }
+  }
+
+  // store time stamp for next cycle
+  mPreviousTimestamp = measurementPack.timestamp;
 }
 
-/**
- * Updates the state and the state covariance matrix using a laser measurement.
- * @param {MeasurementPackage} meas_package
- */
-void UKF::UpdateLidar(MeasurementPackage meas_package) {
+const TVector UKF::GetEstimate() const
+{
+  TVector x(4);
+  x << mX(0),
+       mX(1),
+       mX(2) * cos(mX(3)),
+       mX(2) * sin(mX(3));
+  return x;
+}
+
+void UKF::Prediction(double deltaTime)
+{
+  // create augmented mean vector
+  TVector xAug(mNAug);
+  xAug << mX, 0, 0;
+
+  // create augmented state covariance
+  TMatrix pAug(mNAug, mNAug);
+  pAug.setZero();
+  pAug.topLeftCorner(5, 5) = mP;
+  pAug(5, 5) = mStdA * mStdA;
+  pAug(6, 6) = mStdYawdd * mStdYawdd;
+
+  // create augmented sigma point matrix
+  MatrixXd xSigAug(mNAug, 2 * mNAug + 1);
+  TMatrix A(pAug.llt().matrixL());
+  xSigAug.col(0) = xAug;
+  TMatrix An(sqrt(mLambda + mNAug) * A);
+  for (int n = 0; n < mNAug; ++n)
+  {
+    xSigAug.col(n + 1) = xAug + An.col(n);
+    xSigAug.col(n + 1 + mNAug) = xAug - An.col(n);
+  }
+
+  // predict sigma points
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+      TVector x = xSigAug.col(n);
+      TVector xPred(mNX);
+      if (GetTools().isZero(x(4)))
+      {
+        // straight case
+        xPred << x(2) * cos(x(3)) * deltaTime,
+                 x(2) * sin(x(3)) * deltaTime,
+                 0,
+                 x(4) * deltaTime,
+                 0;
+      }
+      else
+      {
+        xPred << x(2) / x(4) * (sin(x(3) + x(4) * deltaTime) - sin(x(3))),
+                 x(2) / x(4)* (-cos(x(3) + x(4) * deltaTime) + cos(x(3))),
+                 0,
+                 x(4) * deltaTime,
+                 0;
+      }
+      TVector xPredNu(mNX);
+      xPredNu << 0.5 * deltaTime * deltaTime * cos(x(3)) * x(5),
+                 0.5 * deltaTime * deltaTime * sin(x(3)) * x(5),
+                 deltaTime * x(5),
+                 0.5 * deltaTime * deltaTime * x(6),
+                 deltaTime * x(6);
+
+      mXSigPred.col(n) = x.head(5) + xPred + xPredNu;
+  }
+
+  // update new state from predicted sigma points
+  mX = mXSigPred.col(0) * mWeights(0);
+  for (int n = 1; n < 2 * mNAug + 1; ++n)
+  {
+    mX += mXSigPred.col(n) * mWeights(n);
+  }
+
+  // update state covariance matrix from predicted sigma points
+  mP.setZero();
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+      TVector xd = mXSigPred.col(n) - mX;
+      xd(3) = GetTools().NormalizeAngle(xd(3));
+      mP += mWeights(n) * xd * xd.transpose();
+  }
+}
+
+void UKF::UpdateLidar(MeasurementPackage measurementPack)
+{
   /**
   TODO:
 
@@ -97,17 +202,64 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   */
 }
 
-/**
- * Updates the state and the state covariance matrix using a radar measurement.
- * @param {MeasurementPackage} meas_package
- */
-void UKF::UpdateRadar(MeasurementPackage meas_package) {
-  /**
-  TODO:
+void UKF::UpdateRadar(MeasurementPackage measurementPack)
+{
+  // map sigma points to measurement space
+  TMatrix zSig = MatrixXd(3, 2 * mNAug + 1);
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+    TVector z = mXSigPred.col(n);
+    float roh = sqrt(z(0) * z(0) + z(1) * z(1)) + 0.001;
+    zSig.col(n) << roh,
+                   atan2(z(1),z(0)),
+                   (z(0)*cos(z(3))*z(2) + z(1)*sin(z(3))*z(2) ) / roh;
+  }
 
-  Complete this function! Use radar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
+  // calculate mean predicted measurement
+  TVector zPred = zSig.col(0) * mWeights(0);
+  for (int n = 1; n < 2 * mNAug + 1; ++n)
+  {
+    zPred += zSig.col(n) * mWeights(n);
+  }
 
-  You'll also need to calculate the radar NIS.
-  */
+  // calculate measurement covariance matrix S
+  TMatrix S(3, 3);
+  S.setZero();
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+    //residual
+    VectorXd zd = zSig.col(n) - zPred;
+    zd(1) = GetTools().NormalizeAngle(zd(1));
+    S += mWeights(n) * zd * zd.transpose();
+  }
+
+  // add measurement noise covariance matrix
+  S += mRRadar;
+
+  // calculate cross correlation matrix
+  TMatrix Tc(mNX, 3);
+  Tc.setZero();
+  for (int n = 0; n < 2 * mNAug + 1; ++n)
+  {
+    //residual
+    VectorXd zd = zSig.col(n) - zPred;
+    zd(1) = GetTools().NormalizeAngle(zd(1));
+
+    // state difference
+    VectorXd xd = mXSigPred.col(n) - mX;
+    xd(3) = GetTools().NormalizeAngle(xd(3));
+
+    Tc += mWeights(n) * xd * zd.transpose();
+  }
+
+  //Kalman gain K;
+  MatrixXd K = Tc * S.inverse();
+
+  //residual
+  VectorXd zd = measurementPack.rawMeasurements - zPred;
+  zd(1) = GetTools().NormalizeAngle(zd(1));
+
+  //update state mean and covariance matrix
+  mX += K * zd;
+  mP += K * S * K.transpose();
 }
