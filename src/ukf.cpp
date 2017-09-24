@@ -60,8 +60,8 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
   {
     mP << 1, 0, 0, 0, 0,
           0, 1, 0, 0, 0,
-          0, 0, 1, 0, 0,
-          0, 0, 0, 1, 0,
+          0, 0, 1000, 0, 0,
+          0, 0, 0, 1000, 0,
           0, 0, 0, 0, 1;
     switch (measurementPack.sensorType)
     {
@@ -179,7 +179,7 @@ void UKF::Prediction(double deltaTime)
                  deltaTime * x(5),
                  0.5 * deltaTime * deltaTime * x(6),
                  deltaTime * x(6);
-      //xPred += xPredNu;
+      xPred += xPredNu;
       xPred(3) = GetTools().NormalizeAngle(xPred(3));
       mXSigPred.col(n) = xPred;
   }
