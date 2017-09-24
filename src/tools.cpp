@@ -51,6 +51,7 @@ float Tools::NormalizeAngle(float a) const
   {
     a += 2.0f * M_PI;
   }
+  return a;
 }
 
 TMatrix Tools::CalculateRadarJacobian(const TVector &xState) const

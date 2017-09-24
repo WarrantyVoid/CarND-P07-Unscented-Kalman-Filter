@@ -26,7 +26,7 @@ public:
   /**
   * Retrieves current estimate.
   **/
-  const TVector GetEstimate() const;
+  TVector GetEstimate() const;
 
 protected:
   /**

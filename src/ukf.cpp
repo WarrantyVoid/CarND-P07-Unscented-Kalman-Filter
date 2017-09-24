@@ -13,7 +13,7 @@ using std::vector;
 UKF::UKF()
   : mIsInitialized(false)
   , mUseLaser(true)
-  , mUseRadar(true)
+  , mUseRadar(false)
   , mNX(5)
   , mNAug(7)
   , mX(mNX)
@@ -60,31 +60,34 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
   {
     mP << 1, 0, 0   , 0,    0,
           0, 1, 0   , 0,    0,
-          0, 0, 1000, 0,    0,
-          0, 0, 0   , 1000, 0,
-          0, 0, 0   , 0,    1000;
+          0, 0, 1   , 0,    0,
+          0, 0, 0   , 1,    0,
+          0, 0, 0   , 0,    1;
     switch (measurementPack.sensorType)
     {
       case MeasurementPackage::RADAR:
-      {
-        mX << measurementPack.rawMeasurements(0) * cos(measurementPack.rawMeasurements(1)),
-              measurementPack.rawMeasurements(0) * sin(measurementPack.rawMeasurements(1)),
-              0,
-              0,
-              0;
-      }
+        if (mUseRadar)
+        {
+          mX << measurementPack.rawMeasurements(0) * cos(measurementPack.rawMeasurements(1)),
+                measurementPack.rawMeasurements(0) * sin(measurementPack.rawMeasurements(1)),
+                0,
+                0,
+                0;
+          mIsInitialized = true;
+        }
       break;
-    case MeasurementPackage::LASER:
-      {
-        mX << measurementPack.rawMeasurements(0),
-              measurementPack.rawMeasurements(1),
-              0,
-              0,
-              0;
-      }
-      break;
+      case MeasurementPackage::LASER:
+        if (mUseLaser)
+        {
+          mX << measurementPack.rawMeasurements(0),
+                measurementPack.rawMeasurements(1),
+                0,
+                0,
+                0;
+          mIsInitialized = true;
+        }
+        break;
     }
-    mIsInitialized = true;
   }
   else
   {
@@ -95,10 +98,16 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
     switch (measurementPack.sensorType)
     {
     case MeasurementPackage::RADAR:
-      UpdateRadar(measurementPack);
+      if (mUseRadar)
+      {
+        UpdateRadar(measurementPack);
+      }
       break;
     case MeasurementPackage::LASER:
-      UpdateLidar(measurementPack);
+      if (mUseLaser)
+      {
+        UpdateLidar(measurementPack);
+      }
       break;
     }
   }
@@ -107,8 +116,9 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
   mPreviousTimestamp = measurementPack.timestamp;
 }
 
-const TVector UKF::GetEstimate() const
+TVector UKF::GetEstimate() const
 {
+  // convert to same format as ground thruth from sim
   TVector x(4);
   x << mX(0),
        mX(1),
@@ -149,19 +159,19 @@ void UKF::Prediction(double deltaTime)
       if (GetTools().isZero(x(4)))
       {
         // straight case
-        xPred << x(2) * cos(x(3)) * deltaTime,
-                 x(2) * sin(x(3)) * deltaTime,
-                 0,
-                 x(4) * deltaTime,
-                 0;
+        xPred << x(0) + x(2) * cos(x(3)) * deltaTime,
+                 x(1) + x(2) * sin(x(3)) * deltaTime,
+                 x(2),
+                 x(3) + x(4) * deltaTime,
+                 x(4);
       }
       else
       {
-        xPred << x(2) / x(4) * (sin(x(3) + x(4) * deltaTime) - sin(x(3))),
-                 x(2) / x(4)* (-cos(x(3) + x(4) * deltaTime) + cos(x(3))),
-                 0,
-                 x(4) * deltaTime,
-                 0;
+        xPred << x(0) + x(2) / x(4) * (sin(x(3) + x(4) * deltaTime) - sin(x(3))),
+                 x(1) + x(2) / x(4)* (-cos(x(3) + x(4) * deltaTime) + cos(x(3))),
+                 x(2),
+                 x(3) + x(4) * deltaTime,
+                 x(4);
       }
       TVector xPredNu(mNX);
       xPredNu << 0.5 * deltaTime * deltaTime * cos(x(3)) * x(5),
@@ -169,16 +179,18 @@ void UKF::Prediction(double deltaTime)
                  deltaTime * x(5),
                  0.5 * deltaTime * deltaTime * x(6),
                  deltaTime * x(6);
-
-      mXSigPred.col(n) = x.head(5) + xPred + xPredNu;
+      xPred += xPredNu;
+      xPred(3) = GetTools().NormalizeAngle(xPred(3));
+      mXSigPred.col(n) = xPred;
   }
 
   // update new state from predicted sigma points
-  mX = mXSigPred.col(0) * mWeights(0);
+  mX = mWeights(0) * mXSigPred.col(0);
   for (int n = 1; n < 2 * mNAug + 1; ++n)
   {
-    mX += mXSigPred.col(n) * mWeights(n);
+    mX += mWeights(n) * mXSigPred.col(n);
   }
+  mX(3) = GetTools().NormalizeAngle(mX(3));
 
   // update state covariance matrix from predicted sigma points
   mP.setZero();
@@ -201,10 +213,10 @@ void UKF::UpdateLidar(MeasurementPackage measurementPack)
   }
 
   // calculate mean predicted measurement
-  TVector zPred = zSig.col(0) * mWeights(0);
+  TVector zPred = mWeights(0) * zSig.col(0);
   for (int n = 1; n < 2 * mNAug + 1; ++n)
   {
-    zPred += zSig.col(n) * mWeights(n);
+    zPred +=  mWeights(n) * zSig.col(n);
   }
 
   TMatrix S(2, 2);
@@ -248,11 +260,12 @@ void UKF::UpdateRadar(MeasurementPackage measurementPack)
   }
 
   // calculate mean predicted measurement
-  TVector zPred = zSig.col(0) * mWeights(0);
+  TVector zPred = mWeights(0) * zSig.col(0);
   for (int n = 1; n < 2 * mNAug + 1; ++n)
   {
-    zPred += zSig.col(n) * mWeights(n);
+    zPred += mWeights(n) * zSig.col(n);
   }
+  zPred(1) = GetTools().NormalizeAngle(zPred(1));
 
   TMatrix S(3, 3);
   TMatrix Tc(mNX, 3);
