@@ -13,7 +13,7 @@ using std::vector;
 UKF::UKF()
   : mIsInitialized(false)
   , mUseLaser(true)
-  , mUseRadar(false)
+  , mUseRadar(true)
   , mNX(5)
   , mNAug(7)
   , mX(mNX)
@@ -58,11 +58,11 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
 {
   if (!mIsInitialized)
   {
-    mP << 1, 0, 0   , 0,    0,
-          0, 1, 0   , 0,    0,
-          0, 0, 1000, 0,    0,
-          0, 0, 0   , 1000, 0,
-          0, 0, 0   , 0,    1000;
+    mP << 1, 0, 0, 0, 0,
+          0, 1, 0, 0, 0,
+          0, 0, 1, 0, 0,
+          0, 0, 0, 1, 0,
+          0, 0, 0, 0, 1;
     switch (measurementPack.sensorType)
     {
       case MeasurementPackage::RADAR:
@@ -179,7 +179,7 @@ void UKF::Prediction(double deltaTime)
                  deltaTime * x(5),
                  0.5 * deltaTime * deltaTime * x(6),
                  deltaTime * x(6);
-      xPred += xPredNu;
+      //xPred += xPredNu;
       xPred(3) = GetTools().NormalizeAngle(xPred(3));
       mXSigPred.col(n) = xPred;
   }
