@@ -13,7 +13,7 @@ using std::vector;
 UKF::UKF()
   : mIsInitialized(false)
   , mUseLaser(true)
-  , mUseRadar(false)
+  , mUseRadar(true)
   , mNX(5)
   , mNAug(7)
   , mX(mNX)
@@ -60,9 +60,9 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
   {
     mP << 1, 0, 0   , 0,    0,
           0, 1, 0   , 0,    0,
-          0, 0, 1   , 0,    0,
-          0, 0, 0   , 1,    0,
-          0, 0, 0   , 0,    1;
+          0, 0, 1000, 0,    0,
+          0, 0, 0   , 1000, 0,
+          0, 0, 0   , 0,    1000;
     switch (measurementPack.sensorType)
     {
       case MeasurementPackage::RADAR:
