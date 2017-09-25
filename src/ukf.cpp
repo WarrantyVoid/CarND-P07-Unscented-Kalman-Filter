@@ -58,11 +58,11 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
 {
   if (!mIsInitialized)
   {
-    mP << 1, 0, 0, 0, 0,
-          0, 1, 0, 0, 0,
+    mP << 1, 0, 0,    0, 0,
+          0, 1, 0,    0, 0,
           0, 0, 1000, 0, 0,
           0, 0, 0, 1000, 0,
-          0, 0, 0, 0, 1;
+          0, 0, 0,    0, 1;
     switch (measurementPack.sensorType)
     {
       case MeasurementPackage::RADAR:
@@ -118,7 +118,10 @@ void UKF::ProcessMeasurement(MeasurementPackage measurementPack)
 
 TVector UKF::GetEstimate() const
 {
+  static int s_i = 0;
   // convert to same format as ground thruth from sim
+  std::cout <<"(" << s_i << ") " << mX << std::endl << "=============" << std::endl;
+  ++s_i;
   TVector x(4);
   x << mX(0),
        mX(1),
@@ -186,7 +189,14 @@ void UKF::Prediction(double deltaTime)
 
   // update new state from predicted sigma points
   mX = GetTools().CalculateSigmaMean(mXSigPred, mWeights);
-  mX(3) = GetTools().NormalizeAngle(mX(3));
+  float xX(0);
+  float xY(0);
+  for (int n = 0; n < mXSigPred.cols(); ++n)
+  {
+    xX += mWeights(n) * cos(mXSigPred.col(n)(3));
+    xY += mWeights(n) * sin(mXSigPred.col(n)(3));
+  }
+  mX(3) = atan2(xY, xX);
 
   // update state covariance matrix from predicted sigma points
   mP.setZero();
@@ -254,7 +264,14 @@ void UKF::UpdateRadar(MeasurementPackage measurementPack)
 
   // calculate mean predicted measurement
   TVector zPred = GetTools().CalculateSigmaMean(zSig, mWeights);
-  zPred(1) = GetTools().NormalizeAngle(zPred(1));
+  float zPredX(0);
+  float zPredY(0);
+  for (int n = 0; n < mXSigPred.cols(); ++n)
+  {
+    zPredX += mWeights(n) * cos(zSig.col(n)(1));
+    zPredY += mWeights(n) * sin(zSig.col(n)(1));
+  }
+  zPred(1) = atan2(zPredY, zPredX);
 
   TMatrix S(3, 3);
   TMatrix Tc(mNX, 3);
